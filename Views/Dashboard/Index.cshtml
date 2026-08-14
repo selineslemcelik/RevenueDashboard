@@ -1,0 +1,1305 @@
+@model RevenueDashboard.Models.ViewModels.DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+    Layout = null;
+
+    var daily = Model.DailyRevenue;
+    var dailyAvg = daily.Any() ? daily.Average(x => x.Value) : 0;
+    var thisMonth = Model.PeriodRevenue.ThisMonth;
+    var lastMonth = Model.PeriodRevenue.LastMonth;
+    var monthChange = lastMonth > 0 ? (thisMonth - lastMonth) / lastMonth * 100 : 0;
+    var today = Model.PeriodRevenue.Today;
+    var yesterday = Model.PeriodRevenue.Yesterday;
+    var dayChange = yesterday > 0 ? (today - yesterday) / yesterday * 100 : 0;
+    var thisYear = Model.PeriodRevenue.ThisYear;
+    var lastYear = Model.PeriodRevenue.LastYear;
+    var yearChange = lastYear > 0 ? (thisYear - lastYear) / lastYear * 100 : 0;
+
+    var lastDayLabel = daily.Any()
+        ? DateTime.Parse(daily.Last().Label).ToString("d MMMM yyyy", new System.Globalization.CultureInfo("tr-TR"))
+        : "-";
+
+    var userName = User.Identity?.Name ?? "Kullanıcı";
+    var roleLabel = User.IsInRole("Admin") ? "Administrator" : "Kullanıcı";
+
+    string arrow(decimal v) => v >= 0 ? "↑" : "↓";
+    string cls(decimal v) => v >= 0 ? "up" : "down";
+   string alarm(decimal v) => v < 0 ? "alarm" : "";
+    string fmtDate(string iso) => DateTime.TryParse(iso, out var dt) ? dt.ToString("dd MMM yyyy") : iso;
+    const decimal USD_TRY_RATE = 47.35m; // 27 Temmuz 2026 piyasa kuru
+    string compactMoney(decimal v)
+    {
+        var usd = v / USD_TRY_RATE;
+        var abs = Math.Abs(usd);
+        if (abs >= 1_000_000m)
+            return "$" + (usd / 1_000_000m).ToString("N1", System.Globalization.CultureInfo.InvariantCulture) + "M";
+        if (abs >= 1_000m)
+            return "$" + (usd / 1_000m).ToString("N1", System.Globalization.CultureInfo.InvariantCulture) + "K";
+        return "$" + usd.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+    }
+    string[] merzigoPalette = { "#00a97c", "#03936C", "#7dd8bb", "#0b6b52", "#5fcf9f", "#004d38" };
+    string merzigoColor(int i) => merzigoPalette[i % merzigoPalette.Length];
+    string platIcon(string p) => p switch
+    {
+        "YouTube" => "▶",
+        "Facebook" => "f",
+        "Dailymotion & TikTok" => "♪",
+        "TV & Syndication" => "📺",
+        _ => "●"
+    };
+    string platColor(string p) => p switch
+    {
+        "YouTube" => "#FF0000",
+        "Facebook" => "#1877F2",
+        "Dailymotion & TikTok" => "#000000",
+        "TV & Syndication" => "#03936C",
+        _ => "#00a97c"
+    };
+    string kpiIconSvg(string key)
+    {
+        string paths = key switch
+        {
+            "wallet" => "<path d=\"M21 12V7H5a2 2 0 0 1 0-4h14v4\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h16v-5\"/><path d=\"M18 12a2 2 0 0 0 0 4h4v-4Z\"/>",
+            "trending-up" => "<polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/>",
+            "bar-chart-3" => "<path d=\"M3 3v18h18\"/><path d=\"M18 17V9\"/><path d=\"M13 17V5\"/><path d=\"M8 17v-3\"/>",
+            "banknote" => "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>",
+            "building-2" => "<path d=\"M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z\"/><path d=\"M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2\"/><path d=\"M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2\"/><path d=\"M10 6h4\"/><path d=\"M10 10h4\"/><path d=\"M10 14h4\"/><path d=\"M10 18h4\"/>",
+            _ => ""
+        };
+        return $"<svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">{paths}</svg>";
+    }
+
+
+}
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Revenue Dashboard</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flag-icons/7.2.3/css/flag-icons.min.css" />
+    <style>
+        :root{ --accent:#00a97c; --accent-dark:#03936C; --red:#dc2626; --amber:#c77d0a;
+            --accent-soft:#EBF5F0; --card-bg:#f1f8f5; --ink:#1f2d29; --muted:#6b8079; --line:#ade4d0;
+            --line-soft:#d9ece4; --bg:#f7faf9; --card:#fff; }
+        *{ box-sizing:border-box; }
+        html,body{ margin:0; height:100%; }
+        body{ background:var(--bg); font-family:system-ui,-apple-system,'Segoe UI',sans-serif;
+            color:var(--ink); -webkit-font-smoothing:antialiased; font-size:13px; }
+
+        .topbar{ background:var(--card); border-bottom:1px solid var(--line-soft); padding:0 1.5rem; height:56px;
+            display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:20; }
+        .brand{ display:flex; align-items:center; gap:.55rem; }
+        .brand .logo{ width:30px; height:30px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:800; }
+        .brand .bt{ font-weight:700; font-size:.98rem; line-height:1.15; }
+        .brand .bs{ font-size:.68rem; color:var(--muted); line-height:1.15; }
+        .topright{ display:flex; align-items:center; gap:.9rem; }
+        .deck-ctrl{ display:flex; align-items:center; gap:.7rem; }
+        .ring{ width:34px; height:34px; transform:rotate(-90deg); }
+        .ring circle{ fill:none; stroke-width:3; }
+        .ring .bg{ stroke:var(--line-soft); }
+        .ring .fg{ stroke:var(--accent); stroke-linecap:round; transition:stroke-dashoffset .3s linear; }
+        .ctrl-btn{ width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--card); display:grid; place-items:center; cursor:pointer; color:var(--accent-dark); font-size:.9rem; transition:all .15s; }
+        .ctrl-btn:hover{ background:var(--accent-soft); }
+        .screen-title{ font-size:.78rem; font-weight:700; color:var(--ink); min-width:130px; text-align:center; }
+        .screen-title small{ display:block; font-size:.64rem; color:var(--muted); font-weight:500; }
+        .divider{ width:1px; height:28px; background:var(--line-soft); }
+        .clock{ text-align:right; font-size:.72rem; color:var(--muted); line-height:1.3; }
+        .clock b{ color:var(--ink); font-weight:700; font-size:.9rem; font-variant-numeric:tabular-nums; }
+        .clock .dt{ display:flex; align-items:center; gap:.3rem; justify-content:flex-end; }
+        .clock .dot{ width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .user-chip{ display:flex; align-items:center; gap:.55rem; padding:.25rem .7rem .25rem .3rem; border:1px solid var(--line-soft); border-radius:22px; }
+        .user-chip .av{ width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; display:grid; place-items:center; font-size:.8rem; font-weight:700; }
+        .user-chip .nm{ font-size:.8rem; font-weight:700; line-height:1.2; }
+        .user-chip .rl{ font-size:.68rem; color:var(--muted); line-height:1.2; }
+        .icon-btn{ width:34px; height:34px; border-radius:8px; border:1px solid var(--line); background:var(--card); display:grid; place-items:center; cursor:pointer; text-decoration:none; color:var(--accent-dark); transition:all .15s; }
+        .icon-btn:hover{ background:var(--accent-soft); }
+
+        .wrap{ padding:.9rem 1.5rem .5rem; max-width:1720px; margin:0 auto; }
+        .screen{ display:none; }
+        .screen.active{ display:block; }
+        .screen.in-right{ animation:slideR .5s ease; }
+        .screen.in-left{ animation:slideL .5s ease; }
+        @@keyframes slideR{ from{opacity:0; transform:translateX(40px);} to{opacity:1; transform:none;} }
+        @@keyframes slideL{ from{opacity:0; transform:translateX(-40px);} to{opacity:1; transform:none;} }
+
+        .grid{ display:grid; gap:.8rem; }
+        .row-main{ grid-template-columns:1.6fr 1fr; margin-bottom:.8rem; }
+        .portfolio-platform-row{ grid-template-columns:1.3fr 1.2fr; }
+        .row-main > .card2{ min-width:0; }
+
+        .cpp-list{ display:flex; flex-direction:column; height:100%; }
+        .cpp-head{ display:grid; grid-template-columns:20% 12% 18% 32% 18%; gap:0; padding:.3rem .5rem .5rem; border-bottom:1px solid var(--line); flex:0 0 auto; }
+        .cpp-head span{ font-size:.64rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:700; padding-right:1.5rem; }
+        .cpp-head span.num{ text-align:right; }
+        .cpp-row{ display:grid; grid-template-columns:20% 12% 18% 32% 18%; gap:0; align-items:center; flex:1 1 0; min-height:0; padding:0 .5rem; border-bottom:1px solid var(--line-soft); }
+        .cpp-row:last-child{ border-bottom:none; }
+        .cpp-row:hover{ background:var(--accent-soft); }
+        .cpp-row span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding-right:1.5rem; }
+        .cpp-company{ font-weight:700; color:var(--ink); font-size:.86rem; text-align:left; }
+        .cpp-channels{ font-weight:700; color:var(--ink); font-size:.86rem; text-align:left; padding-left:0 !important; }
+        .cpp-content{ color:var(--ink); font-size:.82rem; font-weight:500; text-align:left; }
+        .cpp-num{ text-align:right; font-variant-numeric:tabular-nums; color:var(--accent-dark); font-weight:800; font-size:.84rem; }
+
+        .ph2-body{ display:flex; gap:1rem; height:100%; min-height:0; }
+        .ph2-trend{ flex:1 1 66%; display:flex; flex-direction:column; min-width:0; min-height:0; }
+        .ph2-trend-legend{ display:flex; gap:.9rem; margin-bottom:.25rem; font-size:.72rem; font-weight:700; color:var(--ink); flex:0 0 auto; }
+        .ph2-trend-legend i{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:.3rem; vertical-align:middle; }
+        .ph2-donut{ flex:1 1 34%; position:relative; min-width:0; min-height:0; }
+        .ph2-donut canvas{ width:100% !important; height:100% !important; }
+
+        .card2{ background:var(--card-bg); border:1px solid var(--line); border-radius:12px; padding:.8rem .95rem; }
+
+        .card2 h5{ font-size:.86rem; font-weight:700; margin:0 0 .05rem; color:var(--ink); }
+        .card2 .q{ font-size:.76rem; color:#4d635c; margin-bottom:.5rem; }
+        .panel-body{ position:relative; flex:1; min-height:0; }
+        .flexcard{ display:flex; flex-direction:column; }
+
+        /* Üst KPI Kartları */
+        .kpi-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; margin-bottom:.8rem; }
+        .kpi{ position:relative; overflow:hidden; }
+        .kpi.alarm::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--red); }
+        .kpi .top{ display:flex; align-items:center; justify-content:space-between; }
+        .kpi .label{ color:var(--ink); font-size:.86rem; font-weight:700; }
+        .kpi .ic{ width:32px; height:32px; border-radius:50%; background:var(--accent-soft); color:var(--accent-dark); display:grid; place-items:center; }
+        .kpi .value{ font-size:1.4rem; font-weight:800; margin:.3rem 0 .05rem; letter-spacing:-.02em; color:var(--accent); }
+        .kpi .value.ink{ color:var(--ink); font-size:1.15rem; }
+        .kpi .sub{ font-size:.75rem; color:var(--muted); }
+        .kpi .desc{ font-size:.68rem; color:var(--muted); margin-top:.15rem; opacity:.85; }
+        .kpi-date-highlight{ font-size:.64rem; font-weight:800; color:var(--muted); margin:0; line-height:1; }
+        .value-wrap{ display:flex; flex-direction:column; gap:1px; }
+        .chg.up{ color:var(--accent-dark); font-weight:700; } .chg.down{ color:var(--red); font-weight:700; }
+
+        /* Aylık Şirket Liderlik Tablosu — satırlar kart yüksekliğini eşit paylaşır, boşluk kalmaz */
+        .lead-list{ display:flex; flex-direction:column; height:100%; }
+        .lead-row{ display:grid; grid-template-columns:34px minmax(0,1fr) 96px 64px 76px; align-items:center; gap:.75rem; flex:1 1 0; min-height:0; border-bottom:1px solid var(--line-soft); }
+        .lead-row:last-child{ border-bottom:none; }
+        .lead-rank{ width:28px; height:28px; border-radius:8px; background:var(--accent-soft); display:grid; place-items:center; font-size:.86rem; font-weight:800; color:var(--accent-dark); }
+        .lead-row:first-child .lead-rank{ background:var(--accent); color:#fff; }
+        .lead-name{ font-weight:700; color:var(--ink); font-size:.92rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .lead-val{ text-align:right; font-weight:800; color:var(--ink); font-size:.9rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+        .lead-chg{ text-align:right; font-weight:800; font-size:.84rem; white-space:nowrap; }
+        .lead-chg.up{ color:var(--accent-dark); }
+        .lead-chg.down{ color:var(--red); }
+        .lead-spark{ width:68px; height:28px; }
+
+        /* Platform Performansı — karşılaştırmalı (dumbbell) grafik */
+        .dumbbell-list{ display:flex; flex-direction:column; gap:.7rem; height:100%; justify-content:center; }
+        .dumbbell-row{ display:grid; grid-template-columns:88px 1fr 96px; align-items:center; gap:.6rem; }
+        .dumbbell-name{ font-size:.78rem; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .dumbbell-track{ position:relative; height:20px; }
+        .dumbbell-line{ position:absolute; top:50%; height:3px; background:var(--line-soft); border-radius:2px; transform:translateY(-50%); }
+        .dumbbell-dot{ position:absolute; top:50%; width:11px; height:11px; border-radius:50%; transform:translate(-50%,-50%); }
+        .dumbbell-dot.prev{ background:var(--line); }
+        .dumbbell-dot.curr.up{ background:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .dumbbell-dot.curr.down{ background:var(--red); box-shadow:0 0 0 3px rgba(220,38,38,.15); }
+        .dumbbell-meta{ text-align:right; }
+        .dumbbell-val{ font-size:.78rem; font-weight:800; color:var(--ink); font-variant-numeric:tabular-nums; }
+        .dumbbell-pct{ font-size:.7rem; font-weight:800; }
+        .dumbbell-pct.up{ color:var(--accent-dark); }
+        .dumbbell-pct.down{ color:var(--red); }
+
+        /* Gelir Yoğunlaşma Riski */
+        .risk-card{ display:flex; flex-direction:column; justify-content:center; height:100%; gap:.5rem; }
+        .risk-headline{ display:flex; align-items:baseline; gap:.6rem; }
+        .risk-pct{ font-size:2.1rem; font-weight:800; color:var(--ink); letter-spacing:-.02em; }
+        .risk-tag{ font-size:.7rem; font-weight:800; padding:.2rem .55rem; border-radius:12px; text-transform:uppercase; letter-spacing:.02em; }
+        .risk-tag.risk-low{ background:var(--accent-soft); color:var(--accent-dark); }
+        .risk-tag.risk-mid{ background:#fdf1de; color:var(--amber); }
+        .risk-tag.risk-high{ background:#fde2e2; color:var(--red); }
+        .risk-caption{ font-size:.76rem; color:var(--muted); }
+        .risk-bar{ height:10px; border-radius:6px; background:var(--line-soft); overflow:hidden; display:flex; }
+        .risk-bar-fill{ height:100%; background:linear-gradient(90deg, var(--accent), #00e0a0); }
+
+        /* Ülke Bazlı Coğrafi Gelir Analizi */
+        .geo-body{ display:flex; gap:.7rem; flex:1; min-height:0; min-width:0; align-items:center; }
+        .geo-left{ flex:1; display:flex; flex-direction:column; gap:.4rem; justify-content:space-between; overflow:hidden; min-width:0; }
+        .geo-row{ display:flex; align-items:center; gap:.5rem; }
+        .geo-dot{ width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+        .geo-info{ flex:1; min-width:0; }
+        .geo-top{ display:flex; justify-content:space-between; align-items:baseline; }
+        .geo-name{ font-size:.76rem; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .geo-pct{ font-size:.72rem; font-weight:800; color:var(--accent-dark); }
+        .geo-bar{ height:5px; border-radius:4px; background:var(--line-soft); overflow:hidden; margin:.2rem 0 .1rem; }
+        .geo-bar>span{ display:block; height:100%; border-radius:4px; background:linear-gradient(90deg, #7dd8bb, var(--accent)); }
+        .geo-row.lead .geo-bar>span{ background:linear-gradient(90deg, var(--accent), #00e0a0); box-shadow:0 0 8px rgba(0,169,124,.5); }
+        .geo-row.lead .geo-name{ color:var(--accent-dark); }
+        .geo-val{ font-size:.68rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+
+        .geo-right{ flex:0 0 260px; width:260px; height:260px; max-width:260px; max-height:260px;
+            position:relative; border-radius:10px; overflow:hidden; margin:0 auto; }
+        .geo-right canvas{ border-radius:10px; width:100% !important; height:100% !important; display:block; }
+
+        .geo-pin-wrap{ position:relative; }
+        .geo-dot-pin{ position:absolute; top:0; left:0; width:6px; height:6px; margin:-3px 0 0 -3px;
+            border-radius:50%; background:#00a97c;
+            opacity:0; transform:scale(.3);
+            box-shadow:0 0 0 2px rgba(255,255,255,.9), 0 0 6px rgba(0,169,124,.8);
+            transition:opacity .35s ease, transform .35s ease; }
+        .geo-pin-wrap.show .geo-dot-pin{ opacity:1; transform:scale(1); animation:geoDotGlow 1.6s ease-in-out infinite; }
+        @@keyframes geoDotGlow{
+            0%, 100% { box-shadow:0 0 0 2px rgba(255,255,255,.9), 0 0 6px rgba(0,169,124,.8); }
+            50%      { box-shadow:0 0 0 2px rgba(255,255,255,.9), 0 0 14px rgba(0,169,124,1); }
+        }
+
+        .geo-badge{ position:absolute; top:0; left:0; background:rgba(255,255,255,.95); border:1px solid var(--accent);
+            border-radius:8px; padding:.3rem .55rem; white-space:normal; max-width:180px; text-align:center; line-height:1.3;
+            font-size:.66rem; font-weight:700; color:var(--ink);
+            pointer-events:none; box-shadow:0 4px 16px rgba(0,169,124,.35);
+            opacity:0; transform:translate(-50%, calc(-100% - 30px)) scale(.85);
+            transition:opacity .35s ease, transform .35s ease; }
+        .geo-pin-wrap.show .geo-badge{ opacity:1; transform:translate(-50%, calc(-100% - 30px)) scale(1); }
+        .geo-badge b{ color:var(--accent-dark); }
+        .geo-pin-wrap.show .geo-badge::after{ content:""; position:absolute; left:50%; bottom:-30px; width:1px; height:24px;
+            background:rgba(0,169,124,.55); transform:translateX(-50%); }
+
+        .ticker{ background:var(--accent-soft); border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+            overflow:hidden; white-space:nowrap; padding:.35rem 0; display:flex; align-items:center; position:sticky; bottom:0; }
+        .ticker-track{ display:inline-block; white-space:nowrap; animation:scroll 45s linear infinite; }
+        .ticker-item{ display:inline-block; padding:0 1.4rem; font-size:.82rem; font-weight:600; color:var(--ink); }
+        .ticker-item .u{ color:var(--accent-dark); font-weight:800; } .ticker-item .dn{ color:var(--red); font-weight:800; }
+        @@keyframes scroll{ from{transform:translateX(0);} to{transform:translateX(-50%);} }
+
+        .dots{ display:flex; justify-content:center; gap:.5rem; padding:.4rem 0; }
+        .dots span{ width:8px; height:8px; border-radius:50%; background:var(--line); cursor:pointer; transition:all .2s; }
+        .dots span.on{ background:var(--accent); width:22px; border-radius:5px; }
+
+        /* Yeni 1. ekran — Kanal, Ülke Trend ve Platform performansı */
+        .executive-bottom{ grid-template-columns:0.9fr 1fr 1.1fr; }
+        .channel-performance{ display:flex; flex-direction:column; flex:1; min-height:0; }
+        .channel-performance-row{ display:grid; grid-template-columns:32px minmax(0,1fr) 108px; align-items:center; gap:.75rem; padding:.5rem .2rem; border-bottom:1px solid var(--line-soft); }
+        .channel-performance-row:last-child{ border-bottom:none; }
+        .channel-rank{ width:26px; height:26px; display:grid; place-items:center; border-radius:8px; background:var(--accent-soft); color:var(--accent-dark); font-weight:800; font-size:.8rem; }
+        .channel-performance-row:first-child .channel-rank{ background:var(--accent); color:white; }
+        .channel-info{ min-width:0; }
+        .channel-name{ font-size:.9rem; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .channel-company{ margin-top:2px; font-size:.74rem; font-weight:500; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .channel-figures{ text-align:right; }
+        .channel-revenue{ font-size:.9rem; font-weight:800; color:var(--ink); white-space:nowrap; line-height:1.2; }
+        .channel-change{ margin-top:2px; font-size:.78rem; font-weight:800; white-space:nowrap; }
+        .positive{ color:var(--accent-dark); }
+        .negative{ color:var(--red); }
+        .platform-executive-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:.65rem; flex:1; }
+        .platform-executive-card{ background:white; border:1px solid var(--line-soft); border-radius:10px; padding:.75rem; min-width:0; }
+        .platform-exec-header{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+        .platform-exec-title{ display:flex; align-items:center; gap:.4rem; font-size:.78rem; font-weight:700; }
+        .platform-exec-icon{ width:24px; height:24px; display:grid; place-items:center; border-radius:7px; color:white; font-weight:800; }
+        .platform-exec-change{ font-size:.76rem; font-weight:800; }
+        .platform-exec-revenue{ margin-top:.55rem; font-size:1.25rem; line-height:1; font-weight:800; color:var(--accent-dark); }
+        .platform-exec-caption{ margin-top:.25rem; font-size:.65rem; color:var(--muted); }
+        .platform-divider{ height:1px; background:var(--line-soft); margin:.65rem 0; }
+        .platform-leader-label{ font-size:.6rem; font-weight:800; letter-spacing:.05em; color:var(--muted); }
+        .platform-leader{ margin-top:.25rem; font-size:.73rem; font-weight:700; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .platform-leader-revenue{ margin-top:.15rem; font-size:.7rem; font-weight:800; color:var(--accent-dark); }
+
+        
+#screen1 .kpi .body{display:flex;justify-content:space-between;align-items:flex-start;margin-top:4px;}
+#screen1 .kpi .changeBox{text-align:right;min-width:70px;}
+#screen1 .kpi .changeBox .pct{font-size:.72rem;font-weight:800;}
+#screen1 .kpi .changeBox .txt{font-size:.60rem;color:var(--muted);font-weight:800;}
+
+@@media (max-width:1100px){ .kpi-grid,.row-main,.portfolio-platform-row{ grid-template-columns:1fr 1fr; } }
+    </style>
+
+<style id="dashboard-single-screen-fit-v2">
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+.wrap {
+    height: calc(100vh - 56px - 36px);
+    max-width: 1720px;
+    padding: 9px 24px 29px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+#screen1.active {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: 88px minmax(0, 1.05fr) minmax(0, .88fr);
+    gap: 8px;
+    overflow: hidden;
+}
+
+#screen2.active {
+    height: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px;
+    overflow: hidden;
+}
+
+#screen2 > .row-main {
+    margin: 0 !important;
+    min-height: 0;
+    height: 100%;
+}
+
+#screen2 .row-main > .card2 {
+    height: 100% !important;
+    min-height: 0 !important;
+    padding: 9px 13px !important;
+    overflow: hidden;
+}
+
+#screen2 .card2 h5 {
+    font-size: .79rem;
+    line-height: 1.08;
+    margin: 0 0 2px;
+}
+
+#screen2 .card2 .q {
+    font-size: .62rem;
+    line-height: 1.08;
+    margin-bottom: 4px;
+}
+
+#screen2 canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+}
+
+#screen1 > .kpi-grid,
+#screen1 > .row-main {
+    margin: 0 !important;
+    min-height: 0;
+}
+
+#screen1 .kpi-grid {
+    height: 88px;
+    gap: 10px;
+}
+
+#screen1 .kpi {
+    height: 88px !important;
+    min-height: 0 !important;
+    padding: 9px 14px !important;
+}
+
+#screen1 .kpi .top {
+    height: 22px;
+}
+#screen1 .kpi .top-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#screen1 .kpi .change {
+    font-size: .70rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+#screen1 .kpi .label {
+    font-size: .79rem;
+    font-weight: 700;
+}
+
+#screen1 .kpi .ic {
+    width: 28px;
+    height: 28px;
+    font-size: .80rem;
+}
+
+#screen1 .kpi .value {
+    font-size: 1.26rem;
+    line-height: 1.05;
+    margin: 2px 0 2px !important;
+}
+
+#screen1 .kpi .sub {
+    display: block !important;
+    font-size: .72rem !important;
+    font-weight: 700;
+    line-height: 1.15 !important;
+    margin: 2px 0 0 0 !important;
+    white-space: nowrap;
+}
+
+#screen1 .kpi .desc {
+    display: block !important;
+    font-size: .62rem !important;
+    line-height: 1.15 !important;
+    margin-top: 2px !important;
+    white-space: nowrap;
+}
+
+#screen1 .row-main {
+    height: 100%;
+    gap: 8px;
+}
+
+#screen1 .row-main > .card2 {
+    height: 100% !important;
+    min-height: 0 !important;
+    padding: 9px 13px !important;
+    overflow: hidden;
+}
+
+#screen1 .card2 h5 {
+    font-size: .79rem;
+    line-height: 1.08;
+    margin: 0 0 2px;
+}
+
+#screen1 .card2 .q {
+    font-size: .62rem;
+    line-height: 1.08;
+    margin-bottom: 4px;
+}
+
+#screen1 .panel-body {
+    min-height: 0;
+    overflow: hidden;
+}
+
+#screen1 canvas {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+}
+
+#screen1 .channel-performance {
+    min-height: 0;
+    height: 100%;
+    justify-content: space-between;
+    overflow: hidden;
+}
+
+#screen1 .channel-performance-row {
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-columns: 30px minmax(0,1fr) 100px;
+    gap: 10px;
+    padding: 4px 2px !important;
+}
+
+#screen1 .channel-rank {
+    width: 24px;
+    height: 24px;
+    font-size: .72rem;
+}
+
+#screen1 .channel-name {
+    font-size: .84rem;
+    line-height: 1.1;
+}
+
+#screen1 .channel-company {
+    margin-top: 2px;
+    font-size: .68rem;
+    line-height: 1.1;
+}
+
+#screen1 .channel-revenue {
+    font-size: .84rem;
+    line-height: 1.15;
+}
+
+#screen1 .channel-change {
+    margin-top: 2px;
+    font-size: .72rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+#screen1 .platform-executive-grid {
+    min-height: 0;
+    height: calc(100% - 29px) !important;
+    gap: 8px;
+    align-items: stretch;
+}
+
+#screen1 .platform-executive-card {
+    height: 100% !important;
+    min-height: 0;
+    padding: 14px 16px !important;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between !important;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+#screen1 .platform-exec-icon {
+    width: 26px;
+    height: 26px;
+    font-size: .78rem;
+}
+
+#screen1 .platform-exec-title,
+#screen1 .platform-exec-change {
+    font-size: .8rem;
+}
+
+#screen1 .platform-exec-revenue {
+    margin-top: 6px;
+    font-size: 1.55rem;
+}
+
+#screen1 .platform-exec-caption {
+    margin-top: 3px;
+    font-size: .72rem;
+    white-space: nowrap;
+}
+
+#screen1 .platform-divider {
+    margin: 0 !important;
+    flex: 0 0 auto;
+}
+
+#screen1 .platform-leader-label {
+    font-size: .64rem;
+}
+
+#screen1 .platform-leader {
+    margin-top: 4px;
+    font-size: .78rem;
+    line-height: 1.2;
+    min-height: 0;
+}
+
+#screen1 .platform-leader-revenue {
+    margin-top: 5px;
+    font-size: .76rem;
+}
+
+.ticker,
+.ticker-wrap,
+.ticker-bar {
+    height: 36px !important;
+    max-height: 36px !important;
+}
+
+@@media (max-height: 820px) {
+    .wrap {
+        padding-top: 7px;
+        padding-bottom: 27px;
+    }
+
+    #screen1.active {
+        grid-template-rows: 82px minmax(0, 1fr) minmax(0, .86fr);
+        gap: 7px;
+    }
+
+    #screen1 .kpi-grid,
+    #screen1 .kpi {
+        height: 82px !important;
+    }
+
+    #screen1 .kpi {
+        padding: 7px 12px !important;
+    }
+
+    #screen1 .kpi .value {
+        font-size: 1.14rem;
+    }
+
+    #screen1 .kpi .sub {
+        font-size: .60rem !important;
+    }
+
+    #screen1 .kpi .desc {
+        font-size: .54rem !important;
+        margin-top: 2px !important;
+    }
+
+    #screen1 .row-main > .card2 {
+        padding: 7px 11px !important;
+    }
+
+    #screen1 .channel-performance-row {
+        padding: 3px 2px !important;
+    }
+
+    #screen1 .platform-executive-card {
+        padding: 10px 12px !important;
+    }
+
+    #screen2 .row-main > .card2 {
+        padding: 7px 11px !important;
+    }
+
+    #screen2 .card2 h5 {
+        font-size: .78rem;
+    }
+
+    #screen2 .card2 .q {
+        font-size: .62rem;
+    }
+}
+
+@@media (max-width: 1050px) {
+    html, body { overflow: auto; }
+    .wrap { height: auto; overflow: visible; }
+
+    .row-main,
+    .executive-bottom,
+    .portfolio-platform-row {
+        grid-template-columns: 1fr !important;
+    }
+
+    #screen1.active,
+    #screen2.active {
+        height: auto;
+        display: block;
+        overflow: visible;
+    }
+
+    #screen1 > *,
+    #screen2 > * {
+        margin-bottom: 10px !important;
+    }
+
+    #screen1 .row-main > .card2,
+    #screen2 .row-main > .card2 {
+        height: auto !important;
+        min-height: 260px !important;
+    }
+
+    #screen1 .row-main > .card2,
+    #screen2 .row-main > .card2 {
+        overflow: hidden !important;
+        position: relative;
+    }
+
+    #screen1 .panel-body,
+    #screen2 .panel-body {
+        height: 220px !important;
+        min-height: 220px !important;
+        max-height: 220px !important;
+        flex: 0 0 220px !important;
+        display: block !important;
+        overflow: hidden !important;
+        position: relative;
+    }
+
+    #screen1 .channel-performance,
+    #screen1 .platform-executive-grid,
+    #screen2 .cpp-list {
+        height: 220px !important;
+        min-height: 220px !important;
+        max-height: 220px !important;
+        flex: 0 0 220px !important;
+        overflow: hidden !important;
+    }
+
+    #screen1 .kpi-grid {
+        height: auto !important;
+    }
+
+    #screen1 .kpi {
+        height: auto !important;
+        min-height: 90px !important;
+    }
+
+    #screen2 .ph2-body {
+        flex-direction: column;
+        height: auto !important;
+    }
+
+    #screen2 .ph2-donut {
+        height: 220px !important;
+        min-height: 220px !important;
+        max-height: 220px !important;
+        flex: 0 0 220px !important;
+        overflow: hidden !important;
+    }
+
+    #screen2 .ph2-trend {
+        flex: 0 0 220px !important;
+        min-height: 220px;
+        overflow: hidden !important;
+    }
+}
+</style>
+
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand"><span class="logo">R</span><span><div class="bt">Revenue Dashboard</div><div class="bs">Executive Revenue Monitoring</div></span></div>
+        <div class="deck-ctrl">
+            <button class="ctrl-btn" id="prevBtn" title="Önceki">‹</button>
+            <div class="screen-title" id="screenTitle">Kısa Vade</div>
+            <button class="ctrl-btn" id="nextBtn" title="Sonraki">›</button>
+            <svg class="ring" viewBox="0 0 36 36"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" id="ringFg" cx="18" cy="18" r="15"/></svg>
+            <button class="ctrl-btn" id="playBtn" title="Durdur / Oynat">⏸</button>
+        </div>
+        <div class="topright">
+            <div class="clock"><div class="dt"><span class="dot"></span> <span id="clockDate">—</span></div><b id="clockTime">—</b></div>
+            <a class="icon-btn" href="/Dashboard" title="Yenile">⟳</a>
+            <button class="icon-btn" id="fsBtn" title="Tam ekran">⛶</button>
+            <div class="divider"></div>
+            <div class="user-chip"><span class="av">@(userName.Length>0?userName.Substring(0,1).ToUpper():"U")</span><span><span class="nm">@userName</span><br><span class="rl">@roleLabel</span></span></div>
+            <form asp-controller="Account" asp-action="Logout" method="post" style="margin:0;"><button class="icon-btn" type="submit" title="Çıkış">⎋</button></form>
+        </div>
+    </div>
+
+    <div class="wrap">
+        <!-- EKRAN 1 — Operational Dashboard -->
+        <div class="screen active" id="screen1">
+            <div class="kpi-grid">
+                <div class="card2 kpi @alarm(dayChange)"><div class="top"><span class="label">Son Veri Gününün Geliri</span><span class="ic">@Html.Raw(kpiIconSvg("wallet"))</span></div><div class="body"><div class="value-wrap"><div class="value">$@((today / USD_TRY_RATE).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))</div><div class="kpi-date-highlight">@lastDayLabel</div></div><div class="changeBox"><div class="pct chg @cls(dayChange)">@arrow(dayChange) %@Math.Abs(dayChange).ToString("N0")</div><div class="txt">önceki güne göre</div></div></div></div>
+                <div class="card2 kpi @alarm(monthChange)"><div class="top"><span class="label">Bu Ay Geliri</span><span class="ic">@Html.Raw(kpiIconSvg("trending-up"))</span></div><div class="body"><div class="value">$@((thisMonth / USD_TRY_RATE).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))</div><div class="changeBox"><div class="pct chg @cls(monthChange)">@arrow(monthChange) %@Math.Abs(monthChange).ToString("N0")</div><div class="txt">geçen aya göre</div></div></div></div>
+                <div class="card2 kpi"><div class="top"><span class="label">Günlük Ortalama</span><span class="ic">@Html.Raw(kpiIconSvg("bar-chart-3"))</span></div><div class="value">$@((dailyAvg / USD_TRY_RATE).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))</div><div class="desc">Son 30 günün ortalaması</div></div>
+                <div class="card2 kpi @alarm(yearChange)"><div class="top"><span class="label">Yıllık Gelir</span><span class="ic">@Html.Raw(kpiIconSvg("building-2"))</span></div><div class="body"><div class="value">$@((thisYear / USD_TRY_RATE).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))</div><div class="changeBox"><div class="pct chg @cls(yearChange)">@arrow(yearChange) %@Math.Abs(yearChange).ToString("N0")</div><div class="txt">geçen yıla göre</div></div></div></div>
+            </div>
+            <div class="grid row-main">
+                <div class="card2 flexcard" style="height:340px;"><h5>Son 30 Gün Gelir Trendi</h5><div class="q">Günlük gelir + 7 günlük hareketli ortalama</div><div class="panel-body"><canvas id="dailyChart"></canvas></div></div>
+                <div class="card2 flexcard" style="height:340px;">
+                    <h5>Aylık Şirket Liderlik Tablosu</h5>
+                    <div class="q">Bu ayın toplam gelirine göre sıralı</div>
+                    <div class="panel-body">
+                        <div class="lead-list">
+                            @{ int leadRank = 1; }
+                            @foreach (var cm in Model.CompanyMonthly)
+                            {
+                                <div class="lead-row">
+                                    <span class="lead-rank">@leadRank</span>
+                                    <span class="lead-name">@cm.Company</span>
+                                    <span class="lead-val">@compactMoney(cm.ThisMonthRevenue)</span>
+                                    <span class="lead-chg @(cm.ChangePercent>=0?"up":"down")">@(cm.ChangePercent>=0?"↑":"↓") %@Math.Abs(cm.ChangePercent).ToString("N0")</span>
+                                    <svg class="lead-spark" viewBox="0 0 60 22" preserveAspectRatio="none" data-points="@string.Join(",", cm.Sparkline6Month.Select(v => v.ToString(System.Globalization.CultureInfo.InvariantCulture)))"></svg>
+                                </div>
+                                leadRank++;
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="grid row-main executive-bottom">
+                <div class="card2 flexcard" style="height:260px;">
+                    <h5>En Çok Gelir Getiren Kanallar</h5>
+                    <div class="q">Bu ayın lider kanalları · geçen aya göre performans</div>
+                    <div class="channel-performance">
+                        @{ int channelRank = 1; }
+                        @foreach (var channel in Model.TopChannelsMonthly)
+                        {
+                            var positive = channel.ChangePercent >= 0;
+                            <div class="channel-performance-row">
+                                <div class="channel-rank">@channelRank</div>
+                                <div class="channel-info">
+                                    <div class="channel-name">@channel.ChannelName</div>
+                                    <div class="channel-company">@channel.Company</div>
+                                </div>
+                                <div class="channel-figures">
+                                    <div class="channel-revenue">@compactMoney(channel.ThisMonthRevenue)</div>
+                                    <div class="channel-change @(positive ? "positive" : "negative")">
+                                        @(positive ? "▲" : "▼") %@Math.Abs(channel.ChangePercent).ToString("N1")
+                                    </div>
+                                </div>
+                            </div>
+                            channelRank++;
+                        }
+                    </div>
+                </div>
+
+                <div class="card2 flexcard" style="height:260px;">
+                    <h5>En Çok Gelir Getiren 5 Ülke Trendi</h5>
+                    <div class="q">Son 1 ay · ülke bazlı gelir hareketi</div>
+                    <div class="panel-body"><canvas id="continentTrendChart"></canvas></div>
+                </div>
+
+                <div class="card2 flexcard" style="height:260px;">
+                    <h5>Platform Performansı</h5>
+                    <div class="q">Bu ay vs geçen ay · büyüme ve platformun lider kanalı</div>
+                    <div class="platform-executive-grid">
+                        @foreach (var platform in Model.PlatformMonthly.Where(x => x.Platform == "YouTube" || x.Platform == "Facebook"))
+                        {
+                            var positive = platform.ChangePercent >= 0;
+                            <div class="platform-executive-card">
+                                <div class="platform-exec-header">
+                                    <div class="platform-exec-title">
+                                        <span class="platform-exec-icon" style="background:@platColor(platform.Platform)">@platIcon(platform.Platform)</span>
+                                        @platform.Platform
+                                    </div>
+                                    <div class="platform-exec-change @(positive ? "positive" : "negative")">
+                                        @(positive ? "▲" : "▼") %@Math.Abs(platform.ChangePercent).ToString("N1")
+                                    </div>
+                                </div>
+                                <div class="platform-exec-revenue">@compactMoney(platform.ThisMonthRevenue)</div>
+                                <div class="platform-exec-caption">Bu ay toplam gelir · geçen ay @compactMoney(platform.LastMonthRevenue)</div>
+                                <div class="platform-divider"></div>
+                                <div class="platform-leader-label">AYIN LİDER KANALI</div>
+                                <div class="platform-leader">@platform.TopChannel</div>
+                                <div class="platform-leader-revenue">@compactMoney(platform.TopChannelRevenue)</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EKRAN 2 — Executive Analytics -->
+        <div class="screen" id="screen2">
+            <div class="grid row-main">
+                <div class="card2 flexcard" style="height:340px;"><h5>Son 12 Ay Gelir Trendi</h5><div class="q">Uzun vadeli büyüme eğilimi (son ay devam ediyor)</div><div class="panel-body"><canvas id="monthlyChart"></canvas></div></div>
+                <div class="card2 flexcard" style="height:340px;">
+                    <h5>Dünya Haritası</h5>
+                    <div class="q">Kıta bazlı gelir dağılımı</div>
+                    <div class="geo-body">
+                        <div class="geo-left">
+                            @{ int contIdx = 0; }
+                            @foreach (var ct in Model.ContinentRevenue.OrderByDescending(x => x.Revenue))
+                            {
+                                <div class="geo-row @(contIdx==0?"lead":"")">
+                                    <span class="geo-dot" style="background:@merzigoColor(contIdx)"></span>
+                                    <div class="geo-info">
+                                        <div class="geo-top"><span class="geo-name">@ct.Continent</span><span class="geo-pct">%@ct.Percentage.ToString("N1")</span></div>
+                                        <div class="geo-bar"><span style="width:@(ct.Percentage.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></span></div>
+                                        <div class="geo-val">@compactMoney(ct.Revenue)</div>
+                                    </div>
+                                </div>
+                                contIdx++;
+                            }
+                        </div>
+                        <div class="geo-right" id="globeViz"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="grid row-main portfolio-platform-row">
+                <div class="card2 flexcard" style="height:340px;">
+                    <h5>Şirket Portföy Performansı</h5>
+                    <div class="q">Portföy gücü ve en başarılı içerik</div>
+                    <div class="panel-body" style="overflow:hidden;">
+                        <div class="cpp-list">
+                            <div class="cpp-head">
+                                <span>Şirket</span>
+                                <span>Kanal Sayısı</span>
+                                <span class="num">Toplam Gelir</span>
+                                <span>En Başarılı İçerik</span>
+                                <span class="num">İçerik Geliri</span>
+                            </div>
+                            @foreach (var cp in Model.CompanyPortfolio.OrderByDescending(x => x.TotalRevenue))
+                            {
+                                <div class="cpp-row">
+                                    <span class="cpp-company">@cp.Company</span>
+                                    <span class="cpp-channels">@cp.ChannelCount</span>
+                                    <span class="cpp-num">@compactMoney(cp.TotalRevenue)</span>
+                                    <span class="cpp-content">@cp.TopContent</span>
+                                    <span class="cpp-num">@compactMoney(cp.TopContentRevenue)</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="card2 flexcard" style="height:340px;">
+                    <h5>Platform Gelir & Pay Dağılımı</h5>
+                    <div class="q">Mecra bazlı gelir kırılımı</div>
+                    <div class="ph2-body">
+                        <div class="ph2-trend">
+                            <div class="ph2-trend-legend">
+                                <span><i style="background:@merzigoColor(0)"></i>YouTube</span>
+                                <span><i style="background:#7FD7BF"></i>Facebook</span>
+                            </div>
+                            <div class="panel-body"><canvas id="platformTrendChart"></canvas></div>
+                        </div>
+                        <div class="ph2-donut"><canvas id="platformSliceDonut"></canvas></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="dots"><span class="on" data-i="0"></span><span data-i="1"></span></div>
+    </div>
+
+    <div class="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/globe.gl"></script>
+    <script>
+        const d = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new {
+            dLabels = Model.DailyRevenue.Select(x => x.Label), dValues = Model.DailyRevenue.Select(x => x.Value),
+            mLabels = Model.MonthlyRevenue.Select(x => x.Label), mValues = Model.MonthlyRevenue.Select(x => x.Value),
+            chLabels = Model.TopChannels.Select(x => x.Label), chValues = Model.TopChannels.Select(x => x.Value),
+            moverNames = Model.TopMovers.Select(x => x.Name), moverPct = Model.TopMovers.Select(x => x.GrowthPercent),
+            ctLabels = Model.ContinentTrend.FirstOrDefault() != null ? Model.ContinentTrend.First().Points.Select(p => p.Label) : new List<string>(),
+            ctSeries = Model.ContinentTrend.OrderByDescending(x => x.Points.Sum(p => p.Value)).Select(x => new { x.Continent, Values = x.Points.Select(p => p.Value) }),
+            psLabels = Model.PlatformRevenue.Where(x => x.Platform == "YouTube" || x.Platform == "Facebook").OrderByDescending(x => x.Revenue).Select(x => x.Platform),
+            psValues = Model.PlatformRevenue.Where(x => x.Platform == "YouTube" || x.Platform == "Facebook").OrderByDescending(x => x.Revenue).Select(x => x.Revenue),
+            psColors = new[]{"#00a97c","#7FD7BF"},
+            psPct = Model.PlatformRevenue.Where(x => x.Platform == "YouTube" || x.Platform == "Facebook").OrderByDescending(x => x.Revenue).Select(x => "%" + x.Percentage.ToString("N1")),
+            psVal = Model.PlatformRevenue.Where(x => x.Platform == "YouTube" || x.Platform == "Facebook").OrderByDescending(x => x.Revenue).Select(x => compactMoney(x.Revenue)),
+            ptYoutube = Model.PlatformMonthly.FirstOrDefault(x => x.Platform == "YouTube") != null ? Model.PlatformMonthly.First(x => x.Platform == "YouTube").Sparkline12Month : new List<decimal>(),
+            ptFacebook = Model.PlatformMonthly.FirstOrDefault(x => x.Platform == "Facebook") != null ? Model.PlatformMonthly.First(x => x.Platform == "Facebook").Sparkline12Month : new List<decimal>(),
+            ptLabels = Model.MonthlyRevenue.Count > 1 ? Model.MonthlyRevenue.SkipLast(1).TakeLast(12).Select(x => x.Label) : Model.MonthlyRevenue.Select(x => x.Label)
+        }));
+
+        const GREEN='#00a97c', MINT='#ade4d0', GRID='#e6f1ec';
+        const soft=(hex,a)=>{const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;};
+        Chart.defaults.font.family='system-ui,sans-serif'; Chart.defaults.color='#6b8079';
+        Chart.defaults.plugins.tooltip.padding=10; Chart.defaults.plugins.tooltip.backgroundColor='#1f2d29';
+        Chart.defaults.plugins.tooltip.cornerRadius=8;
+        Chart.defaults.animation={duration:900,easing:'easeOutQuart'};
+
+        const tl=new Intl.NumberFormat('en-US');
+        const USD_TRY_RATE = 47.35; // 27 Temmuz 2026 piyasa kuru
+        const money=v=>'$'+new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(v/USD_TRY_RATE);
+        const full=v=>'$'+tl.format(Math.round(v/USD_TRY_RATE));
+        const yA=()=>({y:{ticks:{callback:money},grid:{color:GRID},border:{display:false}},x:{grid:{display:false}}});
+        const AY=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+        const shortDay=s=>{const p=String(s).split('-');return p.length===3?(+p[2])+' '+AY[(+p[1])-1]:s;};
+        const shortMonth=s=>{const p=String(s).split('-');return p.length===2?AY[(+p[1])-1]+' '+p[0].slice(2):s;};
+        const movingAvg=(arr,w)=>arr.map((_,i)=>{const s=Math.max(0,i-w+1);const sl=arr.slice(s,i+1);return sl.reduce((a,b)=>a+b,0)/sl.length;});
+        const dMA=movingAvg(d.dValues,7);
+
+        const charts={};
+        function peakLabelPlugin(datasetIndex, excludeLastPoint){
+            return {
+                id: 'peakLabel',
+                afterDraw(chart){
+                    const meta = chart.getDatasetMeta(datasetIndex);
+                    const data = chart.data.datasets[datasetIndex].data;
+                    if (!data || !data.length || !meta.data.length) return;
+
+                    const searchLen = (excludeLastPoint && data.length > 1) ? data.length - 1 : data.length;
+                    let maxI = 0, minI = 0;
+                    for (let i = 1; i < searchLen; i++) {
+                        if (data[i] > data[maxI]) maxI = i;
+                        if (data[i] < data[minI]) minI = i;
+                    }
+
+                    const ctx = chart.ctx;
+                    const area = chart.chartArea;
+                    const blinkOn = Math.floor(Date.now() / 600) % 2 === 0;
+
+                    const drawBadge = (idx, isMax) => {
+                        const point = meta.data[idx];
+                        if (!point) return;
+                        const label = full(data[idx]);
+                        const color = isMax ? '#00a97c' : '#dc2626';
+                        ctx.save();
+
+                        if (blinkOn) {
+                            ctx.beginPath();
+                            ctx.arc(point.x, point.y, 3.5, 0, Math.PI*2);
+                            ctx.fillStyle = color;
+                            ctx.fill();
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = '#fff';
+                            ctx.stroke();
+                        } else {
+                            ctx.beginPath();
+                            ctx.arc(point.x, point.y, 3.5, 0, Math.PI*2);
+                            ctx.lineWidth = 1.5;
+                            ctx.strokeStyle = color;
+                            ctx.stroke();
+                        }
+
+                        ctx.font = '700 11px system-ui,sans-serif';
+                        const textW = ctx.measureText(label).width;
+                        const padX = 6, boxW = textW + padX*2, boxH = 18, gap = 10;
+
+                        const spaceAbove = point.y - area.top;
+                        const spaceBelow = area.bottom - point.y;
+                        const needed = boxH + gap + 4;
+                        const placeAbove = isMax
+                            ? spaceAbove >= needed || spaceAbove >= spaceBelow
+                            : !(spaceBelow >= needed || spaceBelow >= spaceAbove);
+
+                        let boxY = placeAbove ? (point.y - gap - boxH) : (point.y + gap);
+                        boxY = Math.max(area.top + 2, Math.min(boxY, area.bottom - boxH - 2));
+                        const boxX = Math.max(area.left + 2, Math.min(point.x - boxW/2, area.right - boxW - 2));
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 1.3;
+                        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 5); ctx.fill(); ctx.stroke(); }
+                        else { ctx.fillRect(boxX, boxY, boxW, boxH); ctx.strokeRect(boxX, boxY, boxW, boxH); }
+
+                        ctx.fillStyle = color;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(label, boxX + boxW/2, boxY + boxH/2 + 0.5);
+                        ctx.restore();
+                    };
+
+                    drawBadge(maxI, true);
+                    if (minI !== maxI) drawBadge(minI, false);
+                }
+            };
+        }
+
+        setInterval(() => {
+            if (charts.daily) charts.daily.draw();
+            if (charts.monthly) charts.monthly.draw();
+        }, 300);
+
+        charts.daily=new Chart(dailyChart,{type:'line',data:{labels:d.dLabels.map(shortDay),datasets:[
+            {label:'Günlük',data:d.dValues,borderColor:GREEN,backgroundColor:soft(GREEN,.10),fill:true,tension:.35,pointRadius:0,borderWidth:2.5,order:2},
+            {label:'7G Ort.',data:dMA,borderColor:MINT,borderDash:[6,4],fill:false,tension:.4,pointRadius:0,borderWidth:2,order:1}
+        ]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:20,bottom:20}},plugins:{legend:{display:true,position:'top',align:'end',labels:{boxWidth:10,font:{size:10},padding:8}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+full(c.parsed.y)}}},scales:{...yA(),x:{grid:{display:false},ticks:{maxTicksLimit:8}}}},plugins:[peakLabelPlugin(0)]});
+
+        const CT_COLORS=['#00a97c','#2563eb','#c77d0a','#7c3aed','#db2777'];
+        charts.continent=new Chart(continentTrendChart,{type:'line',data:{labels:d.ctLabels.map(shortDay),datasets:d.ctSeries.map((s,i)=>({label:s.Continent,data:movingAvg(s.Values,3),borderColor:CT_COLORS[i%CT_COLORS.length],backgroundColor:'transparent',borderWidth:2,tension:.35,pointRadius:0}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'bottom',labels:{boxWidth:7,font:{size:8},padding:5}},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+full(c.parsed.y)}}},scales:{y:{ticks:{callback:money,font:{size:8}},grid:{color:GRID},border:{display:false}},x:{grid:{display:false},ticks:{maxTicksLimit:4,font:{size:8}}}}}});
+
+        const lastIdx=d.mValues.length-1;
+        charts.monthly=new Chart(monthlyChart,{type:'line',data:{labels:d.mLabels.map(shortMonth),datasets:[{data:d.mValues,borderColor:GREEN,backgroundColor:soft(GREEN,.12),fill:true,tension:.35,borderWidth:2.5,pointRadius:d.mValues.map((_,i)=>i===lastIdx?3:0),pointBackgroundColor:'#fff',pointBorderColor:GREEN,segment:{borderDash:c=>c.p1DataIndex===lastIdx?[6,4]:undefined,borderColor:c=>c.p1DataIndex===lastIdx?soft(GREEN,.5):GREEN}}]},options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:20,bottom:20}},plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+full(c.parsed.y)+(c.dataIndex===lastIdx?'  (devam ediyor)':'')}}},scales:{...yA(),x:{grid:{display:false},ticks:{maxTicksLimit:6}}}},plugins:[peakLabelPlugin(0,true)]});
+
+
+        charts.platformTrend=new Chart(platformTrendChart,{type:'line',data:{labels:d.ptLabels.map(shortMonth),datasets:[
+            {data:d.ptYoutube,borderColor:'@merzigoColor(0)',backgroundColor:'transparent',borderWidth:2,tension:.35,pointRadius:0},
+            {data:d.ptFacebook,borderColor:'#7FD7BF',backgroundColor:'transparent',borderWidth:2,tension:.35,pointRadius:0}
+        ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+(c.datasetIndex===0?'YouTube':'Facebook')+': '+full(c.parsed.y)}}},scales:{y:{ticks:{callback:money,font:{size:8}},grid:{color:GRID},border:{display:false}},x:{grid:{display:false},ticks:{maxTicksLimit:6,font:{size:8}}}}}});
+
+        const centerText={
+id:'centerText',
+afterDraw(chart){
+const {ctx}=chart;
+const meta=chart.getDatasetMeta(0);
+if(!meta.data.length)return;
+
+const total=d.psValues.reduce((a,b)=>a+b,0);
+const cx=meta.data[0].x;
+const cy=meta.data[0].y;
+
+ctx.save();
+
+meta.data.forEach((arc,i)=>{
+const angle=(arc.startAngle+arc.endAngle)/2;
+const radius=(arc.innerRadius+arc.outerRadius)/2;
+
+const x=cx+Math.cos(angle)*radius;
+const y=cy+Math.sin(angle)*radius;
+
+let size=18;
+if((arc.outerRadius-arc.innerRadius)<60) size=15;
+
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+ctx.fillStyle='#fff';
+ctx.font=`800 ${size}px system-ui`;
+ctx.fillText(d.psPct[i],x,y-size*0.5);
+
+ctx.font=`700 ${size-2}px system-ui`;
+ctx.fillText(d.psVal[i],x,y+size*0.65);
+});
+
+ctx.textAlign='center';
+ctx.textBaseline='middle';
+ctx.fillStyle='#6b8079';
+ctx.font='600 13px system-ui';
+ctx.fillText('Toplam Gelir',cx,cy-12);
+
+ctx.fillStyle='#00a97c';
+ctx.font='700 20px system-ui';
+ctx.fillText(money(total),cx,cy+12);
+
+ctx.restore();
+}
+};
+
+charts.platformSlice=new Chart(platformSliceDonut,{
+type:'doughnut',
+data:{labels:d.psLabels,datasets:[{data:d.psValues,backgroundColor:d.psColors,borderWidth:0,hoverOffset:0}]},
+options:{
+responsive:true,
+maintainAspectRatio:false,
+cutout:'48%',
+layout:{padding:6},
+plugins:{legend:{display:false},tooltip:{enabled:false}}
+},
+plugins:[centerText]
+});
+
+(function(){
+            let html=''; const src=d.moverNames.map((l,i)=>({l,v:d.moverPct[i]}));
+            for (let i=src.length-1; i>0; i--){ const j=Math.floor(Math.random()*(i+1)); [src[i],src[j]]=[src[j],src[i]]; }
+            const pool=src.concat(src);
+            pool.forEach(x=>{ const pct=Number(x.v).toFixed(1); const up=x.v>=0;
+                html+=`<span class="ticker-item">${x.l} <span class="${up?'u':'dn'}">${up?'▲':'▼'} %${Math.abs(pct)}</span></span>`; });
+            const track=document.getElementById('tickerTrack');
+            track.innerHTML=html||'<span class="ticker-item">Veri yok</span>';
+
+            const PX_PER_SEC=55;
+            const halfWidth=track.scrollWidth/2;
+            const duration=Math.max(20, halfWidth/PX_PER_SEC);
+            track.style.animationDuration=duration+'s';
+        })();
+
+        // Aylık Şirket Liderlik Tablosu — mini sparkline'lar
+        (function(){
+            document.querySelectorAll('.lead-spark').forEach(svg => {
+                const pts = (svg.dataset.points || '').split(',').map(Number).filter(n => !isNaN(n));
+                if (pts.length < 2) return;
+                const max = Math.max(...pts), min = Math.min(...pts, 0);
+                const range = (max - min) || 1;
+                const step = 60 / (pts.length - 1);
+                const coords = pts.map((v, i) => `${(i * step).toFixed(1)},${(21 - ((v - min) / range) * 19).toFixed(1)}`).join(' ');
+
+                const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                poly.setAttribute('points', coords);
+                poly.setAttribute('fill', 'none');
+                poly.setAttribute('stroke', '#00a97c');
+                poly.setAttribute('stroke-width', '2');
+                poly.setAttribute('stroke-linecap', 'round');
+                poly.setAttribute('stroke-linejoin', 'round');
+                svg.appendChild(poly);
+            });
+        })();
+
+
+
+        // Ülke Bazlı Coğrafi Gelir Analizi — 3D Interactive Globe (Merzigo tema)
+        (function(){
+            try{
+            const countries = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+                Model.TopCountries.Select(c => new { c.Country, c.CountryCode, c.Percentage, c.Latitude, c.Longitude, RevenueLabel = compactMoney(c.Revenue),
+                    Continent = RevenueDashboard.Infrastructure.ContinentData.CountryToContinent.TryGetValue(c.Country, out var cont) ? cont : "Diğer" })));
+
+            const geoWrap = document.getElementById('globeViz');
+            if (!geoWrap || countries.length === 0) return;
+
+            const LAND = '#00a97c';
+            const OCEAN = '#eaf6f0';
+            const GLOW = '#00a97c';
+
+            const GLOBE_SIZE = Math.min(260, geoWrap.clientWidth || 260, geoWrap.clientHeight || 260);
+
+            const world = Globe()
+                (geoWrap)
+                .backgroundColor('rgba(0,0,0,0)')
+                .showAtmosphere(true)
+                .atmosphereColor(GLOW)
+                .atmosphereAltitude(0.18)
+                .htmlElementsData(countries)
+                .htmlLat('Latitude')
+                .htmlLng('Longitude')
+                .htmlAltitude(0.01)
+                .htmlElement(c => {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'geo-pin-wrap';
+                    wrap.dataset.country = c.Country;
+
+                    const dot = document.createElement('div');
+                    dot.className = 'geo-dot-pin';
+
+                    const badge = document.createElement('div');
+                    badge.className = 'geo-badge';
+                    badge.innerHTML = `<span class="fi fi-${c.CountryCode}"></span> ${c.Country}: <b>${c.RevenueLabel}</b> (${c.Continent}'nın %${c.Percentage.toFixed(1)}'si)`;
+
+                    wrap.appendChild(dot);
+                    wrap.appendChild(badge);
+                    return wrap;
+                })
+                .width(GLOBE_SIZE)
+                .height(GLOBE_SIZE);
+
+            const mat = world.globeMaterial();
+            mat.color.set(OCEAN);
+            mat.shininess = 2;
+
+            fetch('https://cdn.jsdelivr.net/npm/globe.gl/example/datasets/ne_110m_admin_0_countries.geojson')
+                .then(res => res.json())
+                .then(geo => {
+                    world
+                        .polygonsData(geo.features)
+                        .polygonCapColor(() => LAND)
+                        .polygonSideColor(() => 'rgba(0,77,56,0.25)')
+                        .polygonStrokeColor(() => GLOW)
+                        .polygonAltitude(0.006);
+                })
+                .catch(() => { });
+
+            const REST_ALT = 1.25, FOCUS_ALT = 0.95;
+            world.pointOfView({ lat: 20, lng: 5, altitude: REST_ALT }, 0);
+            requestAnimationFrame(() => world.width(GLOBE_SIZE).height(GLOBE_SIZE));
+
+            world.controls().autoRotate = true;
+            world.controls().autoRotateSpeed = 0.7;
+            world.controls().enableZoom = false;
+
+            const BASE_SPEED = 0.7;
+            const RAMP_MS = 700;
+            const FLY_MS = 2200;
+            const STAY_MS = 3000;
+            const TRAVEL_MS = 3500;
+
+            function decelerateThenFly(c, onArrive){
+                const rampStart = performance.now();
+                function ramp(){
+                    const t = Math.min((performance.now() - rampStart) / RAMP_MS, 1);
+                    world.controls().autoRotateSpeed = BASE_SPEED * (1 - t);
+                    if (t < 1) {
+                        requestAnimationFrame(ramp);
+                    } else {
+                        world.controls().autoRotate = false;
+                        world.controls().autoRotateSpeed = BASE_SPEED;
+                        world.pointOfView({ lat: c.Latitude, lng: c.Longitude, altitude: FOCUS_ALT }, FLY_MS);
+                        setTimeout(onArrive, FLY_MS);
+                    }
+                }
+                ramp();
+            }
+
+            let idx = 0;
+            function cycle(){
+                const i = idx % countries.length;
+                const c = countries[i];
+
+                decelerateThenFly(c, () => {
+                    document.querySelectorAll('.geo-pin-wrap').forEach(w => w.classList.remove('show'));
+                    const active = document.querySelector(`.geo-pin-wrap[data-country="${CSS.escape(c.Country)}"]`);
+                    if (active) active.classList.add('show');
+                });
+
+                setTimeout(() => {
+                    document.querySelectorAll('.geo-pin-wrap').forEach(w => w.classList.remove('show'));
+                    world.controls().autoRotate = true;
+                    idx++;
+                    setTimeout(cycle, TRAVEL_MS);
+                }, RAMP_MS + FLY_MS + STAY_MS);
+            }
+            setTimeout(cycle, 1800);
+
+          window.addEventListener('resize', () => {
+                const s = Math.min(260, geoWrap.clientWidth || 260, geoWrap.clientHeight || 260);
+                world.width(s).height(s);
+            });
+          } catch (err) {
+            console.warn('3D küre yüklenemedi (WebGL devre dışı olabilir):', err);
+            const geoWrap = document.getElementById('globeViz');
+            if (geoWrap) geoWrap.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:.75rem;text-align:center;padding:1rem;">Bu tarayıcıda 3D küre görüntülenemiyor (WebGL devre dışı)</div>';
+          }
+        })();
+        const screens=[document.getElementById('screen1'),document.getElementById('screen2')];
+        const chartGroups=[['daily','continent'],['monthly','platformTrend','platformSlice']];
+        const titles=[['Kısa Vade','Günlük & operasyonel'],['Uzun Vade','Aylık & yıllık strateji']];
+        const dots=[...document.querySelectorAll('.dots span')];
+        const titleEl=document.getElementById('screenTitle');
+        const ring=document.getElementById('ringFg');
+        const C=2*Math.PI*15; ring.style.strokeDasharray=C;
+        let cur=0, playing=true, elapsed=0; const PERIOD=30;
+        function show(i,dir){
+            const prev=cur; cur=(i+screens.length)%screens.length;
+            screens.forEach((s,k)=>{ s.classList.remove('in-right','in-left'); s.classList.toggle('active',k===cur); });
+            const dd=dir!==undefined?dir:(cur>prev?1:-1);
+            screens[cur].classList.add(dd>=0?'in-right':'in-left');
+            dots.forEach((dt,k)=>dt.classList.toggle('on',k===cur));
+            titleEl.innerHTML=titles[cur][0];
+            chartGroups[cur].forEach(n=>{ if(charts[n]) charts[n].update(); });
+            elapsed=0;
+        }
+        function tick(){ if(!playing) return; elapsed++; ring.style.strokeDashoffset=C*(1-elapsed/PERIOD); if(elapsed>=PERIOD) show(cur+1,1); }
+        setInterval(tick,1000);
+        document.getElementById('nextBtn').onclick=()=>show(cur+1,1);
+        document.getElementById('prevBtn').onclick=()=>show(cur-1,-1);
+        dots.forEach(dt=>dt.onclick=()=>show(+dt.dataset.i));
+        document.getElementById('playBtn').onclick=function(){ playing=!playing; this.textContent=playing?'⏸':'▶'; };
+        document.getElementById('fsBtn').onclick=()=>{ if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
+        const gunler=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+        function clock(){ const n=new Date(); const p=x=>String(x).padStart(2,'0');
+            document.getElementById('clockTime').textContent=p(n.getHours())+':'+p(n.getMinutes())+':'+p(n.getSeconds());
+            document.getElementById('clockDate').textContent=n.getDate()+' '+AY[n.getMonth()]+' '+gunler[n.getDay()]; }
+        clock(); setInterval(clock,1000);
+    </script>
+</body>
+</html>

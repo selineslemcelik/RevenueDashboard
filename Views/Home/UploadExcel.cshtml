@@ -1,0 +1,93 @@
+@{
+    ViewData["Title"] = "Revenue Import";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Revenue Import · Revenue Dashboard</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <style>
+        :root{ --accent:#00a97c; --accent-dark:#03936C; --accent-soft:#EBF5F0; --card-bg:#f1f8f5;
+            --ink:#0f2e26; --muted:#6b8079; --line:#ade4d0; --red:#dc2626; --card:#fff; }
+        *{ box-sizing:border-box; }
+        html,body{ margin:0; height:100%; }
+        body{ font-family:system-ui,-apple-system,'Segoe UI',sans-serif; color:var(--ink);
+            background:var(--card-bg); min-height:100vh; display:flex; align-items:center; justify-content:center;
+            padding:1.5rem; -webkit-font-smoothing:antialiased; }
+        .upload-card{ width:100%; max-width:480px; background:var(--card); border:1px solid var(--line);
+            border-radius:16px; box-shadow:0 12px 40px rgba(15,46,38,.08); padding:2.4rem 2.2rem; }
+        .upload-card h2{ font-size:1.3rem; font-weight:700; margin:0 0 1.4rem; color:var(--ink); }
+        .upload-card label{ display:block; font-size:.82rem; font-weight:600; color:var(--ink); margin-bottom:.4rem; }
+        .form-control{ border:1.5px solid var(--line); border-radius:10px; padding:.65rem .8rem; }
+        .form-control:focus{ border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+        .btn-primary{ background:var(--accent); border:none; border-radius:10px; padding:.7rem 1.2rem;
+            font-weight:700; width:100%; margin-top:.3rem; }
+        .btn-primary:hover{ background:var(--accent-dark); }
+        .btn-primary:disabled{ opacity:.7; }
+        #uploadMessage .alert{ border-radius:10px; font-size:.85rem; }
+    </style>
+</head>
+<body>
+    <div class="upload-card">
+        <div id="uploadMessage"></div>
+
+        <h2>Revenue Excel Import</h2>
+
+        <form id="uploadForm" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label>Excel Dosyası Seç</label>
+                <input type="file" name="file" id="fileInput" class="form-control" />
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="uploadBtn">
+                Excel Yükle
+            </button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('fileInput');
+            const messageDiv = document.getElementById('uploadMessage');
+            const btn = document.getElementById('uploadBtn');
+
+            if (!fileInput.files.length) {
+                messageDiv.innerHTML = '<div class="alert alert-warning">Lütfen bir dosya seçin.</div>';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            btn.disabled = true;
+            btn.textContent = 'Yükleniyor...';
+            messageDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('@Url.Action("UploadExcel", "Home")', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    messageDiv.innerHTML = '<div class="alert alert-success">' + data.count + ' kayıt veritabanına eklendi.</div>';
+                    fileInput.value = '';
+                } else {
+                    messageDiv.innerHTML = '<div class="alert alert-danger">' + data.message + '</div>';
+                }
+            } catch (err) {
+                messageDiv.innerHTML = '<div class="alert alert-danger">Yükleme sırasında bir hata oluştu.</div>';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Excel Yükle';
+            }
+        });
+    </script>
+</body>
+</html>
